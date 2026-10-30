@@ -1,0 +1,47 @@
+name: Weekly wins
+
+on:
+  schedule:
+    # Mondays 18:00 UTC = Tuesday 07:00 in Auckland (06:00 in NZ winter),
+    # after the last Sunday-night US games have finished.
+    - cron: "0 18 * * 1"
+  workflow_dispatch: {}  # lets you run it by hand from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-wins
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build weekly wins
+        run: python weekly_wins.py --no-show --out data
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update weekly wins ($(date -u +%Y-%m-%d))"
+            git push
+          fi
