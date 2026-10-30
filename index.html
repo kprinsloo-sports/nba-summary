@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA Weekly Wins</title>
+<meta name="description" content="Wins per NBA team per week, updated every Tuesday.">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    --line-muted: #c3c2b7;
+    --bar-earlier: #9ec5f4;
+    --heat-hi: #2a78d6;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+    --radius: 8px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7;
+      --muted: #898781; --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
+      --line-muted: #4a4a46; --bar-earlier: #1c5cab; --heat-hi: #3987e5;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+      --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
+    --line-muted: #4a4a46; --bar-earlier: #1c5cab; --heat-hi: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--page); }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.45 var(--font); }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 40px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 1.75rem; line-height: 1.2; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  h2 { font-size: 1rem; margin: 0 0 4px; font-weight: 600; }
+  p { margin: 0; }
+  a { color: var(--s1); }
+  .lead { font-size: 1.05rem; margin-top: 6px; }
+  .sub, .meta, footer { color: var(--ink-2); font-size: 0.85rem; }
+  .meta { margin-top: 6px; }
+  .note { margin-top: 6px; color: var(--ink-2); font-size: 0.85rem; }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 12px; }
+  .kpi-label { color: var(--ink-2); font-size: 0.8rem; }
+  .kpi-value { font-size: 2rem; font-weight: 600; line-height: 1.15; margin: 4px 0 2px; }
+  .kpi-foot { color: var(--muted); font-size: 0.8rem; }
+
+  .filters { display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .row-label { color: var(--ink-2); font-size: 0.8rem; min-width: 9.5rem; }
+  select, .btn, .chip { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: var(--radius); }
+  select { padding: 5px 8px; min-width: 14rem; max-width: 100%; }
+  .btn { font-size: 0.85rem; padding: 5px 12px; cursor: pointer; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 0.8rem; padding: 3px 10px; border-radius: 999px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .btn:hover, .chip:hover { border-color: var(--muted); }
+  .btn[aria-pressed="true"], .chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  :focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+
+  .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .toggle { display: inline-flex; gap: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 0.8rem; color: var(--ink-2); min-height: 1.2rem; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .chart { position: relative; margin-top: 8px; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart text { font-family: var(--font); }
+  .tick text, .axis-title, .lab-muted { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .lab { fill: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .lab-strong { fill: var(--ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--axis); stroke-width: 1; }
+  .rule { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+  .tip { position: absolute; z-index: 10; pointer-events: none; background: var(--surface); border: 1px solid var(--ring);
+         border-radius: var(--radius); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14); padding: 8px 10px; font-size: 0.8rem; min-width: 11rem; }
+  .tip-h { color: var(--ink-2); margin-bottom: 4px; }
+  .tip-r { display: flex; align-items: center; gap: 6px; }
+  .tip-r span:nth-child(2) { flex: 1; }
+  .tip-r b { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tip-more { color: var(--muted); margin-top: 4px; }
+
+  .tablewrap { max-height: 600px; overflow: auto; margin-top: 10px; border-top: 1px solid var(--grid); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+  th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--surface); color: var(--ink-2); font-weight: 600; z-index: 1; }
+  th button { all: unset; cursor: pointer; }
+  th[aria-sort="ascending"] button::after { content: " \2191"; }
+  th[aria-sort="descending"] button::after { content: " \2193"; }
+  .num { text-align: right; }
+  td.heat { text-align: center; min-width: 3.5rem; }
+
+  .status { padding: 40px 16px; text-align: center; color: var(--ink-2); }
+  .status.error { color: #d03b3b; }
+  footer { padding-top: 4px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 560px) { .row-label { min-width: 100%; } h1 { font-size: 1.4rem; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>NBA wins per team per week</h1>
+    <p class="lead" id="lead">Loading the latest data…</p>
+    <p class="meta" id="meta"></p>
+    <p class="note" id="inprogress" hidden></p>
+  </header>
+
+  <div class="status" id="status" hidden></div>
+
+  <div id="content" hidden>
+    <section class="kpis" aria-label="League totals">
+      <div class="card"><div class="kpi-label">Games played</div><div class="kpi-value" id="k-games">–</div><div class="kpi-foot">Finished games, whole league</div></div>
+      <div class="card"><div class="kpi-label">Teams unbeaten</div><div class="kpi-value" id="k-unbeaten">–</div><div class="kpi-foot" id="k-unbeaten-who">No losses yet</div></div>
+      <div class="card"><div class="kpi-label">Teams winless</div><div class="kpi-value" id="k-winless">–</div><div class="kpi-foot" id="k-winless-who">No wins yet</div></div>
+      <div class="card"><div class="kpi-label">Weeks of data</div><div class="kpi-value" id="k-weeks">–</div><div class="kpi-foot" id="k-weeks-range">Weeks start Monday</div></div>
+    </section>
+
+    <section class="card filters" aria-label="Filters" style="margin-top:16px">
+      <div class="row">
+        <label class="row-label" for="group">Conference or division</label>
+        <select id="group"></select>
+        <button type="button" class="btn" id="reset">Reset filters</button>
+      </div>
+      <div class="row">
+        <span class="row-label" id="teams-label">Teams</span>
+        <div class="chips" id="chips" role="group" aria-labelledby="teams-label"></div>
+      </div>
+      <p class="sub">Pick a conference or division, then click teams to narrow it further. With no teams picked, every team in the group is shown. Filters apply to the charts and table below; the totals above are league-wide. The link in your address bar keeps your filters, so you can bookmark or share a view.</p>
+    </section>
+
+    <section class="card" id="line-card" style="margin-top:16px">
+      <div class="head">
+        <h2 id="line-title">Wins by game week</h2>
+        <div class="toggle" role="group" aria-label="Measure">
+          <button type="button" class="btn" data-metric="wins">Wins that week</button>
+          <button type="button" class="btn" data-metric="cumulative">Season total</button>
+        </div>
+      </div>
+      <p class="sub">One line per team. Up to eight teams get their own colour (teams level on a value are drawn a hair apart so both show); with more, lines are grey and hovering picks out the nearest team.</p>
+      <div class="legend" id="line-legend"></div>
+      <div class="chart" id="line-chart"></div>
+    </section>
+
+    <section class="card" id="bars-card" style="margin-top:16px">
+      <h2>Wins to date, week by week</h2>
+      <p class="sub">Each bar adds up a team's wins, latest week in the darker shade. Ranked by total wins; hover a bar for its weekly breakdown.</p>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--bar-earlier)"></span>Earlier weeks</span>
+        <span><span class="sw" style="background:var(--s1)"></span>Latest week</span>
+      </div>
+      <div class="chart" id="bars-chart"></div>
+    </section>
+
+    <section class="card" id="table-card" style="margin-top:16px">
+      <h2>Wins by team and week</h2>
+      <p class="sub">Each week column is that team's wins in the week; darker means more. Click a heading to sort.</p>
+      <div class="tablewrap"><table id="table"></table></div>
+    </section>
+  </div>
+
+  <footer>
+    Data: <a href="data/weekly_wins.csv">weekly_wins.csv</a>, rebuilt every Tuesday morning (Auckland time) by
+    <a href="https://github.com/kprinsloo-sports/nba-summary">kprinsloo-sports/nba-summary</a>
+    from stats.nba.com via nba_api, or ESPN's scoreboard when NBA.com blocks the request. Finished regular-season games only.
+  </footer>
+</main>
+
+<script src="vendor/d3.v7.9.0.min.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const fmtWeek = (w) => d3.utcFormat("%b %-d")(new Date(w + "T00:00:00Z"));
+  const fmtInt = d3.format(",");
+  const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8"];
+  const MAX_COLOURED = SERIES.length;
+
+  // ---------------------------------------------------------------- state
+  const state = { group: "", teams: [], metric: "wins", sortKey: "wins", sortDir: -1 };
+
+  function readHash() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    state.group = p.get("group") || "";
+    state.teams = (p.get("teams") || "").split(",").map((t) => t.trim().toUpperCase()).filter(Boolean);
+    state.metric = p.get("metric") === "cumulative" ? "cumulative" : "wins";
+  }
+  function writeHash() {
+    const p = new URLSearchParams();
+    if (state.group) p.set("group", state.group);
+    if (state.teams.length) p.set("teams", state.teams.join(","));
+    if (state.metric !== "wins") p.set("metric", state.metric);
+    const h = p.toString();
+    history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
+  }
+
+  // ---------------------------------------------------------------- data
+  let M = null; // model
+
+  function build(weekly, teams, meta) {
+    const info = new Map(teams.map((t) => [t.team, t]));
+    const weeks = [...new Set(weekly.map((r) => r.week_start))].sort();
+    const by = new Map();
+    for (const r of weekly) {
+      let t = by.get(r.team);
+      if (!t) {
+        const i = info.get(r.team) || {};
+        t = { team: r.team, name: i.name || r.team, conference: i.conference || "", division: i.division || "",
+              week: {}, games: 0, wins: 0, losses: 0 };
+        by.set(r.team, t);
+      }
+      t.week[r.week_start] = (t.week[r.week_start] || 0) + r.wins;
+      t.games += r.games; t.wins += r.wins; t.losses += r.losses;
+    }
+    for (const t of by.values()) {
+      let run = 0;
+      t.cum = {};
+      for (const w of weeks) { t.week[w] = t.week[w] || 0; run += t.week[w]; t.cum[w] = run; }
+      t.pct = t.wins + t.losses ? t.wins / (t.wins + t.losses) : 0;
+    }
+    const list = [...by.values()].sort(byRecord);
+    const confs = [...new Set(teams.map((t) => t.conference))].filter(Boolean).sort();
+    const divisions = confs.map((c) => ({ conference: c,
+      divisions: [...new Set(teams.filter((t) => t.conference === c).map((t) => t.division))].sort() }));
+    return { weeks, teams: list, byTeam: by, divisions, meta,
+             gamesPlayed: d3.sum(list, (t) => t.games) / 2 };
+  }
+  const byRecord = (a, b) => b.wins - a.wins || a.losses - b.losses || a.team.localeCompare(b.team);
+
+  function inGroup(t) {
+    return !state.group || t.conference === state.group || t.division === state.group;
+  }
+  function visibleTeams() {
+    const group = M.teams.filter(inGroup);
+    const picked = state.teams.filter((code) => group.some((t) => t.team === code));
+    return picked.length ? picked.map((c) => M.byTeam.get(c)) : group;
+  }
+
+  // ---------------------------------------------------------------- header & KPIs
+  function listText(a) {
+    return a.length <= 1 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+  }
+  function renderHeader() {
+    const unbeaten = M.teams.filter((t) => t.losses === 0 && t.wins > 0).map((t) => t.team);
+    const winless = M.teams.filter((t) => t.wins === 0 && t.losses > 0).map((t) => t.team);
+    const parts = [];
+    if (unbeaten.length) parts.push(listText(unbeaten) + (unbeaten.length > 1 ? " are unbeaten" : " is unbeaten"));
+    if (winless.length) parts.push(listText(winless) + (winless.length > 1 ? " are still looking for a first win" : " is still looking for a first win"));
+    $("lead").textContent = parts.length ? parts.join("; ") + "." : "Every team has both a win and a loss so far.";
+
+    const m = M.meta || {};
+    const bits = [];
+    if (m.season) bits.push(m.season + " " + (m.season_type || "").toLowerCase());
+    if (m.updated_at) {
+      const d = new Date(m.updated_at);
+      bits.push("updated " + d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }));
+    }
+    if (m.source) bits.push("source: " + m.source);
+    $("meta").textContent = bits.join(" · ");
+
+    const latest = M.weeks[M.weeks.length - 1];
+    const inProgress = Date.now() < Date.parse(latest + "T00:00:00Z") + 7 * 864e5 + 12 * 36e5;
+    $("inprogress").hidden = !inProgress;
+    $("inprogress").textContent = "The week of " + fmtWeek(latest) + " was still in progress when the data was built, so its figures will grow.";
+
+    $("k-games").textContent = fmtInt(M.gamesPlayed);
+    $("k-unbeaten").textContent = unbeaten.length;
+    $("k-unbeaten-who").textContent = unbeaten.length ? listText(unbeaten) : "No team unbeaten";
+    $("k-winless").textContent = winless.length;
+    $("k-winless-who").textContent = winless.length ? listText(winless) : "Every team has a win";
+    $("k-weeks").textContent = M.weeks.length;
+    $("k-weeks-range").textContent = M.weeks.length ? "Since the week of " + fmtWeek(M.weeks[0]) : "Weeks start Monday";
+  }
+
+  // ---------------------------------------------------------------- filters
+  function renderFilters() {
+    const sel = $("group");
+    if (!sel.options.length) {
+      sel.append(new Option("All teams", ""));
+      for (const c of M.divisions) {
+        const og = document.createElement("optgroup");
+        const label = c.conference === "East" ? "Eastern Conference" : c.conference === "West" ? "Western Conference" : c.conference;
+        og.label = label;
+        og.append(new Option(label + " – all teams", c.conference));
+        for (const d of c.divisions) og.append(new Option(d + " division", d));
+        sel.append(og);
+      }
+      sel.addEventListener("change", () => {
+        state.group = sel.value;
+        state.teams = state.teams.filter((code) => inGroup(M.byTeam.get(code) || {}));
+        update();
+      });
+    }
+    sel.value = state.group;
+    if (sel.value !== state.group) { state.group = ""; sel.value = ""; }
+
+    const box = $("chips");
+    box.replaceChildren(...M.teams.filter(inGroup).slice().sort((a, b) => a.team.localeCompare(b.team)).map((t) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = t.team;
+      b.title = t.name;
+      b.setAttribute("aria-pressed", state.teams.includes(t.team) ? "true" : "false");
+      b.addEventListener("click", () => {
+        state.teams = state.teams.includes(t.team) ? state.teams.filter((c) => c !== t.team) : [...state.teams, t.team];
+        update();
+      });
+      return b;
+    }));
+    document.querySelectorAll("[data-metric]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.metric === state.metric ? "true" : "false"));
+  }
+
+  // ---------------------------------------------------------------- tooltip helper
+  function placeTip(tip, host, ev) {
+    const box = host.getBoundingClientRect();
+    const t = tip.node();
+    let x = ev.clientX - box.left + 14, y = ev.clientY - box.top + 14;
+    if (x + t.offsetWidth > host.clientWidth) x = ev.clientX - box.left - t.offsetWidth - 14;
+    if (y + t.offsetHeight > host.clientHeight) y = host.clientHeight - t.offsetHeight;
+    tip.style("left", Math.max(x, 0) + "px").style("top", Math.max(y, 0) + "px");
+  }
+  function measure(svg, cls, texts) {
+    const g = svg.append("g");
+    let w = 0;
+    g.selectAll("text").data(texts).join("text").attr("class", cls).text((d) => d)
+      .each(function () { w = Math.max(w, this.getComputedTextLength()); });
+    g.remove();
+    return Math.ceil(w);
+  }
+
+  // ---------------------------------------------------------------- line chart
+  function renderLine() {
+    const host = $("line-chart");
+    const teams = visibleTeams();
+    const key = state.metric === "cumulative" ? "cum" : "week";
+    const weeks = M.weeks;
+    const coloured = teams.length <= MAX_COLOURED;
+    // Colour follows the team: picked teams keep their pick order, otherwise alphabetical.
+    const order = (state.teams.length ? teams.slice().sort((a, b) => state.teams.indexOf(a.team) - state.teams.indexOf(b.team))
+                                      : teams.slice().sort((a, b) => a.team.localeCompare(b.team)));
+    const colour = new Map(order.map((t, i) => [t.team, coloured ? css(SERIES[i]) : css("--line-muted")]));
+    const series = order.map((t) => ({ t, values: weeks.map((w) => ({ week: w, v: t[key][w], off: 0 })) }));
+    const last = (s) => s.values[s.values.length - 1].v;
+    // Teams on the same value at the same week would hide each other: spread them 3px apart.
+    if (coloured) {
+      weeks.forEach((w, wi) => {
+        const groups = d3.group(series, (s) => s.values[wi].v);
+        for (const g of groups.values()) g.forEach((s, k) => { s.values[wi].off = (k - (g.length - 1) / 2) * 3; });
+      });
+    }
+
+    $("line-title").textContent = state.metric === "cumulative" ? "Season wins by game week" : "Wins by game week";
+    const legend = $("line-legend");
+    if (coloured) {
+      legend.replaceChildren(...series.map((s) => {
+        const span = document.createElement("span");
+        const sw = document.createElement("span");
+        sw.className = "sw"; sw.style.background = colour.get(s.t.team);
+        span.append(sw, document.createTextNode(s.t.team + " · " + s.t.name));
+        return span;
+      }));
+    } else {
+      const span = document.createElement("span");
+      const sw = document.createElement("span");
+      sw.className = "sw"; sw.style.background = css("--line-muted");
+      span.append(sw, document.createTextNode(teams.length + " teams, hover to pick one out; choose up to eight to colour them"));
+      legend.replaceChildren(span);
+    }
+
+    const W = Math.max(host.clientWidth, 280), H = 360;
+    host.replaceChildren();
+    const svg = d3.select(host).append("svg").attr("viewBox", `0 0 ${W} ${H}`)
+      .attr("role", "img").attr("aria-label", $("line-title").textContent + " for " + teams.length + " teams");
+    const maxV = Math.max(d3.max(series, (s) => d3.max(s.values, (p) => p.v)) || 0, 1);
+    const y0 = d3.scaleLinear([0, maxV], [0, 1]).nice();
+    const yTicks = y0.ticks(Math.min(6, y0.domain()[1])).filter(Number.isInteger);
+    const showLabels = coloured && teams.length <= 4;
+    const labW = showLabels ? measure(svg, "lab-strong", series.map((s) => `${s.t.team} ${last(s)}`)) : 0;
+    const m = { top: 12, right: showLabels ? labW + 16 : 16, bottom: 46, left: measure(svg, "tick", yTicks.map(String)) + 34 };
+    const x = d3.scalePoint(weeks, [m.left, W - m.right]).padding(weeks.length > 1 ? 0.2 : 0.5);
+    const y = d3.scaleLinear(y0.domain(), [H - m.bottom, m.top]);
+
+    svg.append("g").selectAll("line").data(yTicks).join("line").attr("class", (d) => d === 0 ? "baseline" : "gridline")
+      .attr("x1", m.left).attr("x2", W - m.right).attr("y1", (d) => y(d)).attr("y2", (d) => y(d));
+    svg.append("g").attr("class", "tick").selectAll("text").data(yTicks).join("text")
+      .attr("x", m.left - 8).attr("y", (d) => y(d)).attr("dy", "0.32em").attr("text-anchor", "end").text((d) => d);
+    const every = Math.max(1, Math.ceil(weeks.length * 58 / Math.max(W - m.left - m.right, 1)));
+    const shown = weeks.filter((w, i) => (weeks.length - 1 - i) % every === 0);
+    svg.append("g").attr("class", "tick").selectAll("text").data(shown).join("text")
+      .attr("x", (w) => x(w)).attr("y", H - m.bottom + 18).attr("text-anchor", "middle").text(fmtWeek);
+    svg.append("text").attr("class", "axis-title").attr("x", (m.left + W - m.right) / 2).attr("y", H - 6)
+      .attr("text-anchor", "middle").text("Game week (starting Monday)");
+    svg.append("text").attr("class", "axis-title").attr("transform", `translate(12,${(m.top + H - m.bottom) / 2}) rotate(-90)`)
+      .attr("text-anchor", "middle").text(state.metric === "cumulative" ? "Season wins" : "Wins that week");
+
+    const line = d3.line().x((p) => x(p.week)).y((p) => y(p.v) + p.off);
+    const rule = svg.append("line").attr("class", "rule").attr("y1", m.top).attr("y2", H - m.bottom).style("display", "none");
+    svg.append("g").selectAll("path").data(series).join("path")
+      .attr("fill", "none").attr("stroke", (s) => colour.get(s.t.team)).attr("stroke-width", coloured ? 2 : 1.5)
+      .attr("stroke-linecap", "round").attr("stroke-linejoin", "round").attr("d", (s) => line(s.values));
+    if (coloured) {
+      svg.append("g").selectAll("g").data(series).join("g").attr("fill", (s) => colour.get(s.t.team))
+        .selectAll("circle").data((s) => s.values).join("circle")
+        .attr("cx", (p) => x(p.week)).attr("cy", (p) => y(p.v) + p.off).attr("r", 4)
+        .attr("stroke", css("--surface")).attr("stroke-width", 2);
+    }
+    if (showLabels) {
+      const labs = series.map((s) => ({ s, y: y(last(s)) })).sort((a, b) => a.y - b.y);
+      for (let i = 1; i < labs.length; i++) labs[i].y = Math.max(labs[i].y, labs[i - 1].y + 15);
+      const over = labs.length ? labs[labs.length - 1].y - (H - m.bottom) : 0;
+      if (over > 0) {
+        labs[labs.length - 1].y -= over;
+        for (let i = labs.length - 2; i >= 0; i--) labs[i].y = Math.min(labs[i].y, labs[i + 1].y - 15);
+      }
+      svg.append("g").selectAll("text").data(labs).join("text").attr("class", "lab-strong")
+        .attr("x", W - m.right + 10).attr("y", (l) => l.y).attr("dy", "0.32em").text((l) => `${l.s.t.team} ${last(l.s)}`);
+    }
+    const hi = svg.append("path").attr("fill", "none").attr("stroke", css("--s1")).attr("stroke-width", 2.5).style("display", "none");
+    const hiDot = svg.append("circle").attr("r", 5).attr("fill", css("--s1")).attr("stroke", css("--surface")).attr("stroke-width", 2).style("display", "none");
+    const tip = d3.select(host).append("div").attr("class", "tip").style("display", "none");
+
+    svg.append("rect").attr("x", m.left).attr("y", m.top).attr("width", Math.max(W - m.left - m.right, 1))
+      .attr("height", H - m.top - m.bottom).attr("fill", "transparent")
+      .on("pointerenter pointermove", (ev) => {
+        const [px, py] = d3.pointer(ev, svg.node());
+        let wi = 0;
+        weeks.forEach((w, i) => { if (Math.abs(x(w) - px) < Math.abs(x(weeks[wi]) - px)) wi = i; });
+        const wk = weeks[wi];
+        rule.attr("x1", x(wk)).attr("x2", x(wk)).style("display", null);
+        const at = series.map((s) => ({ s, v: s.values[wi].v })).sort((a, b) => b.v - a.v || a.s.t.team.localeCompare(b.s.t.team));
+        let near = null;
+        if (!coloured) {
+          near = at.reduce((best, a) => (Math.abs(y(a.v) - py) < Math.abs(y(best.v) - py) ? a : best), at[0]);
+          hi.attr("d", line(near.s.values)).style("display", null).raise();
+          hiDot.attr("cx", x(wk)).attr("cy", y(near.v)).style("display", null).raise();
+        }
+        tip.selectAll("*").remove();
+        tip.append("div").attr("class", "tip-h").text("Week of " + fmtWeek(wk) + (state.metric === "cumulative" ? " · season wins" : " · wins that week"));
+        const rows = near ? [near, ...at.filter((a) => a !== near)] : at;
+        for (const a of rows.slice(0, 8)) {
+          const r = tip.append("div").attr("class", "tip-r");
+          r.append("span").attr("class", "sw").style("background", near ? (a === near ? css("--s1") : css("--line-muted")) : colour.get(a.s.t.team));
+          r.append("span").text(a.s.t.team);
+          r.append("b").text(a.v);
+        }
+        if (rows.length > 8) tip.append("div").attr("class", "tip-more").text("and " + (rows.length - 8) + " more");
+        tip.style("display", "block");
+        placeTip(tip, host, ev);
+      })
+      .on("pointerleave", () => { tip.style("display", "none"); rule.style("display", "none"); hi.style("display", "none"); hiDot.style("display", "none"); });
+  }
+
+  // ---------------------------------------------------------------- stacked bars
+  function renderBars() {
+    const host = $("bars-chart");
+    const rows = visibleTeams().slice().sort(byRecord);
+    const weeks = M.weeks, latest = weeks[weeks.length - 1];
+    const W = Math.max(host.clientWidth, 280), rowH = 22, barH = 14, top = 26, bottom = 6;
+    const H = top + rows.length * rowH + bottom;
+    host.replaceChildren();
+    const svg = d3.select(host).append("svg").attr("viewBox", `0 0 ${W} ${H}`)
+      .attr("role", "img").attr("aria-label", "Stacked bars of wins to date for " + rows.length + " teams, split by week");
+    const maxWins = Math.max(d3.max(rows, (r) => r.wins) || 0, 1);
+    const left = measure(svg, "lab", rows.map((r) => r.team)) + 12;
+    const right = measure(svg, "lab-muted", rows.map((r) => `${r.wins}–${r.losses}`)) + 14;
+    const x = d3.scaleLinear([0, maxWins], [left, W - right]);
+    const yMid = (i) => top + i * rowH + rowH / 2;
+    const ticks = x.ticks(Math.min(8, maxWins)).filter(Number.isInteger);
+
+    svg.append("g").selectAll("line").data(ticks).join("line").attr("class", (d) => d === 0 ? "baseline" : "gridline")
+      .attr("x1", (d) => x(d)).attr("x2", (d) => x(d)).attr("y1", top - 4).attr("y2", H - bottom);
+    svg.append("g").attr("class", "tick").selectAll("text").data(ticks).join("text")
+      .attr("x", (d) => x(d)).attr("y", top - 10).attr("text-anchor", "middle").text((d) => d);
+    const band = svg.append("rect").attr("x", 0).attr("width", W).attr("height", rowH).attr("fill", css("--grid")).attr("opacity", 0.5).style("display", "none");
+    svg.append("g").selectAll("text").data(rows).join("text").attr("class", "lab")
+      .attr("x", left - 10).attr("y", (r, i) => yMid(i)).attr("dy", "0.32em").attr("text-anchor", "end").text((r) => r.team);
+    svg.append("g").selectAll("text").data(rows).join("text").attr("class", "lab-muted")
+      .attr("x", (r) => x(r.wins) + 6).attr("y", (r, i) => yMid(i)).attr("dy", "0.32em").text((r) => `${r.wins}–${r.losses}`);
+
+    const g = svg.append("g");
+    rows.forEach((r, i) => {
+      let acc = 0;
+      weeks.forEach((w) => {
+        const v = r.week[w];
+        if (v > 0) {
+          g.append("rect").attr("x", x(acc)).attr("y", yMid(i) - barH / 2)
+            .attr("width", Math.max(x(acc + v) - x(acc) - 2, 1)).attr("height", barH).attr("rx", 2)
+            .attr("fill", w === latest ? css("--s1") : css("--bar-earlier"));
+        }
+        acc += v;
+      });
+    });
+
+    const tip = d3.select(host).append("div").attr("class", "tip").style("display", "none");
+    svg.append("g").selectAll("rect").data(rows).join("rect")
+      .attr("x", 0).attr("width", W).attr("y", (r, i) => top + i * rowH).attr("height", rowH).attr("fill", "transparent")
+      .on("pointerenter pointermove", (ev, r) => {
+        band.attr("y", top + rows.indexOf(r) * rowH).style("display", null);
+        tip.selectAll("*").remove();
+        tip.append("div").attr("class", "tip-h").text(`${r.name} · ${r.wins}–${r.losses}`);
+        for (const w of weeks.slice(-8)) {
+          const row = tip.append("div").attr("class", "tip-r");
+          row.append("span").attr("class", "sw").style("background", w === latest ? css("--s1") : css("--bar-earlier"));
+          row.append("span").text("Week of " + fmtWeek(w));
+          row.append("b").text(r.week[w]);
+        }
+        if (weeks.length > 8) tip.append("div").attr("class", "tip-more").text("Last eight weeks shown");
+        tip.style("display", "block");
+        placeTip(tip, host, ev);
+      })
+      .on("pointerleave", () => { tip.style("display", "none"); band.style("display", "none"); });
+  }
+
+  // ---------------------------------------------------------------- table
+  function renderTable() {
+    const weeks = M.weeks;
+    const cols = [
+      { key: "team", label: "Team", text: true },
+      { key: "division", label: "Division", text: true },
+      ...weeks.map((w) => ({ key: "w:" + w, label: fmtWeek(w), week: w })),
+      { key: "wins", label: "Wins" }, { key: "losses", label: "Losses" }, { key: "pct", label: "Win %" },
+    ];
+    const val = (t, k) => (k.startsWith("w:") ? t.week[k.slice(2)] : t[k]);
+    const sk = cols.some((c) => c.key === state.sortKey) ? state.sortKey : "wins";
+    const rows = visibleTeams().slice().sort((a, b) => {
+      const x = val(a, sk), y = val(b, sk);
+      const base = typeof x === "string" ? x.localeCompare(y) * state.sortDir : (x - y) * state.sortDir;
+      return base || byRecord(a, b);
+    });
+    const maxCell = Math.max(d3.max(M.teams, (t) => d3.max(weeks, (w) => t.week[w])) || 0, 1);
+    const heat = d3.interpolateRgb(css("--surface"), css("--heat-hi"));
+
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    for (const c of cols) {
+      const th = document.createElement("th");
+      th.scope = "col";
+      if (!c.text) th.className = c.week ? "" : "num";
+      if (c.week) th.style.textAlign = "center";
+      th.setAttribute("aria-sort", sk === c.key ? (state.sortDir > 0 ? "ascending" : "descending") : "none");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = c.label;
+      b.addEventListener("click", () => {
+        if (state.sortKey === c.key) state.sortDir = -state.sortDir;
+        else { state.sortKey = c.key; state.sortDir = c.text ? 1 : -1; }
+        renderTable();
+      });
+      th.append(b);
+      hr.append(th);
+    }
+    thead.append(hr);
+
+    const tbody = document.createElement("tbody");
+    for (const t of rows) {
+      const tr = document.createElement("tr");
+      for (const c of cols) {
+        const td = document.createElement("td");
+        const v = val(t, c.key);
+        if (c.key === "team") { td.textContent = t.team; td.title = t.name; }
+        else if (c.text) td.textContent = v;
+        else if (c.key === "pct") { td.className = "num"; td.textContent = d3.format(".0%")(v); }
+        else if (c.week) {
+          td.className = "heat";
+          td.textContent = v;
+          const f = v / maxCell;
+          td.style.background = heat(0.12 + 0.88 * f);
+          if (f > 0.55) td.style.color = "#ffffff";
+        } else { td.className = "num"; td.textContent = v; }
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    $("table").replaceChildren(thead, tbody);
+  }
+
+  // ---------------------------------------------------------------- wiring
+  function update() {
+    writeHash();
+    renderFilters();
+    renderLine();
+    renderBars();
+    renderTable();
+  }
+
+  document.querySelectorAll("[data-metric]").forEach((b) => b.addEventListener("click", () => { state.metric = b.dataset.metric; update(); }));
+  $("reset").addEventListener("click", () => { state.group = ""; state.teams = []; state.metric = "wins"; update(); });
+  window.addEventListener("hashchange", () => { if (M) { readHash(); update(); } });
+  let lastW = 0, timer = 0;
+  new ResizeObserver(() => {
+    const w = $("line-chart").clientWidth;
+    if (!M || Math.abs(w - lastW) < 2) return;
+    lastW = w;
+    clearTimeout(timer);
+    timer = setTimeout(() => { renderLine(); renderBars(); }, 120);
+  }).observe(document.body);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (M) update(); });
+
+  const num = (r) => ({ team: r.team, week_start: String(r.week_start).slice(0, 10), games: +r.games, wins: +r.wins, losses: +r.losses });
+  const nocache = { cache: "no-cache" };
+  Promise.all([
+    d3.csv("data/weekly_wins.csv", nocache, num),
+    d3.csv("data/nba_teams.csv", nocache),
+    d3.json("data/weekly_wins_meta.json", nocache).catch(() => null),
+  ]).then(([weekly, teams, meta]) => {
+    if (!weekly.length) throw new Error("the data file has no rows yet");
+    M = build(weekly, teams, meta);
+    readHash();
+    $("content").hidden = false;
+    renderHeader();
+    update();
+    lastW = $("line-chart").clientWidth;
+  }).catch((err) => {
+    const s = $("status");
+    s.hidden = false;
+    s.className = "status error";
+    s.textContent = "Couldn't load the data (" + err.message + "). If you opened this file straight from your computer, open it through GitHub Pages or a local web server instead.";
+    $("lead").textContent = "";
+  });
+})();
+</script>
+</body>
+</html>

@@ -10,12 +10,14 @@ update. Games come from stats.nba.com, falling back to NBA.com's schedule feed
 and then ESPN's scoreboard if that is blocked (--source picks one). Weeks run
 Monday to Sunday. Outputs go next to this script:
   weekly_wins.csv        one row per team per week (games, wins, losses, cumulative_wins)
+  weekly_wins_meta.json  when the data was built, from which source, and the game count
   weekly_wins.png        heatmap of all teams; each cell is wins/games that week
   weekly_wins_teams.png  grouped bars for the chosen teams, only when --teams is given
 """
 
 import argparse
 import datetime as dt
+import json
 import time
 from pathlib import Path
 
@@ -194,6 +196,7 @@ def fetch_games(season, season_type, source="auto"):
             print(f"Source failed: {name}: {exc}")
             continue
         print(f"Source: {name} ({games['GAME_ID'].nunique()} games)")
+        games.attrs["source"] = name
         return games
     raise SystemExit("All sources failed: " + ", ".join(sources[k][0] for k in order))
 
@@ -321,14 +324,23 @@ def main():
     args = p.parse_args()
 
     print(f"Fetching {args.season} {args.type} games from NBA.com...")
-    wk = weekly_wins(fetch_games(args.season, args.type, args.source))
+    games = fetch_games(args.season, args.type, args.source)
+    wk = weekly_wins(games)
     args.out.mkdir(parents=True, exist_ok=True)
 
     csv = args.out / "weekly_wins.csv"
     wk.assign(week_start=wk["week_start"].dt.date).to_csv(csv, index=False)
+    meta = {
+        "updated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": games.attrs.get("source", args.source),
+        "season": args.season,
+        "season_type": args.type,
+        "games": int(games.loc[games["WL"].isin(["W", "L"]), "GAME_ID"].nunique()),
+    }
+    (args.out / "weekly_wins_meta.json").write_text(json.dumps(meta, indent=2) + "\n")
     title = f"NBA wins per team per week – {args.season} {args.type}"
     plot_heatmap(wk, title, args.out / "weekly_wins.png")
-    saved = ["weekly_wins.csv", "weekly_wins.png"]
+    saved = ["weekly_wins.csv", "weekly_wins_meta.json", "weekly_wins.png"]
     if args.teams:
         plot_bars(wk, [t.upper() for t in args.teams], title, args.out / "weekly_wins_teams.png")
         saved.append("weekly_wins_teams.png")
