@@ -21,9 +21,9 @@ jobs:
     env:
       MPLBACKEND: Agg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -32,7 +32,19 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Build weekly wins
-        run: python weekly_wins.py --no-show --out data
+        run: |
+          set -o pipefail
+          python weekly_wins.py --no-show --out data 2>&1 | tee build.log
+
+      # Surface the key lines as annotations, visible on the run's summary page.
+      - name: Report
+        if: always()
+        run: |
+          [ -f build.log ] || exit 0
+          grep -E "^(Source|stats\.nba\.com|Saved|No finished)" build.log | head -5 | sed 's/^/::notice::/' || true
+          if [ "${{ job.status }}" != "success" ]; then
+            tail -n 6 build.log | tr -d '\r' | sed 's/::/: :/g; s/^/::error::/'
+          fi
 
       - name: Commit updated data
         run: |
