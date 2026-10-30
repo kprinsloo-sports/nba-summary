@@ -97,6 +97,7 @@ def fetch_games_cdn(season, season_type):
 
 
 ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+# ESPN's season type codes, checked on each game (the API rejects some filters).
 ESPN_SEASON_TYPE = {"Pre Season": 1, "Regular Season": 2, "Playoffs": 3, "PlayIn": 5}
 # ESPN abbreviations that differ from NBA.com's.
 ESPN_TO_NBA = {"GS": "GSW", "NY": "NYK", "SA": "SAS", "NO": "NOP", "UTAH": "UTA", "WSH": "WAS"}
@@ -111,22 +112,35 @@ def fetch_games_espn(season, season_type):
     from zoneinfo import ZoneInfo
 
     start_year = int(season[:4])
-    start = dt.date(start_year, 9, 1)
+    start = dt.date(start_year, 10, 1)
     end = min(dt.date.today(), dt.date(start_year + 1, 7, 15))
     want = ESPN_SEASON_TYPE.get(season_type)
     eastern = ZoneInfo("America/New_York")
+
+    def get(dates):
+        r = requests.get(ESPN_SCOREBOARD, params={"dates": dates, "limit": 1000},
+                         timeout=60, headers=BROWSER_HEADERS)
+        r.raise_for_status()
+        return r.json().get("events", [])
+
+    def events(lo, hi):
+        """A date range in one request, or day by day if ESPN rejects the range."""
+        try:
+            return get(f"{lo:%Y%m%d}-{hi:%Y%m%d}")
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code != 400 or lo == hi:
+                raise
+            out, day = [], lo
+            while day <= hi:
+                out += get(f"{day:%Y%m%d}")
+                day += dt.timedelta(days=1)
+            return out
+
     rows, seen = [], set()
     chunk = start
     while chunk <= end:
         chunk_end = min(chunk + dt.timedelta(days=27), end)
-        r = requests.get(
-            ESPN_SCOREBOARD,
-            params={"dates": f"{chunk:%Y%m%d}-{chunk_end:%Y%m%d}", "seasontype": want, "limit": 1000},
-            timeout=60,
-            headers=BROWSER_HEADERS,
-        )
-        r.raise_for_status()
-        for ev in r.json().get("events", []):
+        for ev in events(chunk, chunk_end):
             if ev.get("id") in seen:
                 continue
             seen.add(ev.get("id"))
