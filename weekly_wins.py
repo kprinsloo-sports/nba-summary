@@ -7,7 +7,8 @@ Run:    py weekly_wins.py                      (current season)
 
 Each run re-downloads the whole season from NBA.com, so just run it again to
 update. Games come from stats.nba.com, falling back to NBA.com's schedule feed
-if that is blocked (--source picks one). Weeks run Monday to Sunday. Outputs go next to this script:
+and then ESPN's scoreboard if that is blocked (--source picks one). Weeks run
+Monday to Sunday. Outputs go next to this script:
   weekly_wins.csv        one row per team per week (games, wins, losses, cumulative_wins)
   weekly_wins.png        heatmap of all teams; each cell is wins/games that week
   weekly_wins_teams.png  grouped bars for the chosen teams, only when --teams is given
@@ -31,6 +32,18 @@ def default_season(today=None):
 
 
 GAME_COLUMNS = ["TEAM_ABBREVIATION", "GAME_ID", "GAME_DATE", "WL"]
+NBA_TEAMS = set(
+    "ATL BOS BKN CHA CHI CLE DAL DEN DET GSW HOU IND LAC LAL MEM MIA "
+    "MIL MIN NOP NYK OKC ORL PHI PHX POR SAC SAS TOR UTA WAS".split()
+)
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.nba.com",
+    "Referer": "https://www.nba.com/",
+}
 CDN_SCHEDULE = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
 # NBA game ids start with a code for the kind of game.
 GAME_ID_PREFIX = {"Pre Season": "001", "Regular Season": "002", "Playoffs": "004", "PlayIn": "005"}
@@ -59,11 +72,7 @@ def fetch_games_cdn(season, season_type):
     """
     import requests
 
-    r = requests.get(
-        CDN_SCHEDULE,
-        timeout=60,
-        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"},
-    )
+    r = requests.get(CDN_SCHEDULE, timeout=60, headers=BROWSER_HEADERS)
     r.raise_for_status()
     sched = r.json()["leagueSchedule"]
     if sched.get("seasonYear") and sched["seasonYear"] != season:
@@ -87,24 +96,92 @@ def fetch_games_cdn(season, season_type):
     return pd.DataFrame(rows, columns=GAME_COLUMNS)
 
 
+ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+ESPN_SEASON_TYPE = {"Pre Season": 1, "Regular Season": 2, "Playoffs": 3, "PlayIn": 5}
+# ESPN abbreviations that differ from NBA.com's.
+ESPN_TO_NBA = {"GS": "GSW", "NY": "NYK", "SA": "SAS", "NO": "NOP", "UTAH": "UTA", "WSH": "WAS"}
+
+
+def fetch_games_espn(season, season_type):
+    """ESPN's public scoreboard, in chunks of four weeks across the season.
+
+    Game dates are converted to US Eastern time to match NBA.com's dates.
+    """
+    import requests
+    from zoneinfo import ZoneInfo
+
+    start_year = int(season[:4])
+    start = dt.date(start_year, 9, 1)
+    end = min(dt.date.today(), dt.date(start_year + 1, 7, 15))
+    want = ESPN_SEASON_TYPE.get(season_type)
+    eastern = ZoneInfo("America/New_York")
+    rows, seen = [], set()
+    chunk = start
+    while chunk <= end:
+        chunk_end = min(chunk + dt.timedelta(days=27), end)
+        r = requests.get(
+            ESPN_SCOREBOARD,
+            params={"dates": f"{chunk:%Y%m%d}-{chunk_end:%Y%m%d}", "seasontype": want, "limit": 1000},
+            timeout=60,
+            headers=BROWSER_HEADERS,
+        )
+        r.raise_for_status()
+        for ev in r.json().get("events", []):
+            if ev.get("id") in seen:
+                continue
+            seen.add(ev.get("id"))
+            if want and (ev.get("season") or {}).get("type") not in (None, want):
+                continue
+            comp = (ev.get("competitions") or [{}])[0]
+            status = comp.get("status") or ev.get("status") or {}
+            teams = comp.get("competitors") or []
+            if not (status.get("type") or {}).get("completed") or len(teams) != 2:
+                continue
+            scores = [int(float(t.get("score") or 0)) for t in teams]
+            if scores[0] == scores[1]:
+                continue
+            when = dt.datetime.fromisoformat(ev["date"].replace("Z", "+00:00"))
+            day = when.astimezone(eastern).date().isoformat()
+            for t, mine, theirs in zip(teams, scores, scores[::-1]):
+                abbr = (t.get("team") or {}).get("abbreviation", "")
+                rows.append([ESPN_TO_NBA.get(abbr, abbr), str(ev["id"]), day,
+                             "W" if mine > theirs else "L"])
+        chunk = chunk_end + dt.timedelta(days=1)
+    return pd.DataFrame(rows, columns=GAME_COLUMNS)
+
+
+def check_teams(games):
+    """Fail loudly rather than write data with team codes we don't recognise."""
+    unknown = sorted(set(games["TEAM_ABBREVIATION"]) - NBA_TEAMS)
+    if unknown:
+        raise RuntimeError(f"unrecognised team codes: {', '.join(map(str, unknown))}")
+    return games
+
+
 def fetch_games(season, season_type, source="auto"):
     """One row per team per game, from the chosen source.
 
-    "auto" tries stats.nba.com first and falls back to the schedule feed.
+    "auto" tries stats.nba.com, then NBA.com's schedule feed, then ESPN.
     """
-    if source == "stats":
-        return fetch_games_stats(season, season_type)
-    if source == "cdn":
-        return fetch_games_cdn(season, season_type)
-    try:
-        games = fetch_games_stats(season, season_type, attempts=2, timeout=30)
-        print("Source: stats.nba.com game log")
+    sources = {
+        "stats": ("stats.nba.com game log",
+                  lambda: fetch_games_stats(season, season_type, attempts=2, timeout=30)),
+        "cdn": ("NBA.com schedule feed", lambda: fetch_games_cdn(season, season_type)),
+        "espn": ("ESPN scoreboard", lambda: fetch_games_espn(season, season_type)),
+    }
+    order = list(sources) if source == "auto" else [source]
+    for key in order:
+        name, fetch = sources[key]
+        try:
+            games = check_teams(fetch())
+        except Exception as exc:
+            if source != "auto":
+                raise
+            print(f"Source failed: {name}: {exc}")
+            continue
+        print(f"Source: {name} ({games['GAME_ID'].nunique()} games)")
         return games
-    except Exception as exc:
-        print(f"stats.nba.com unavailable ({exc}); using the NBA.com schedule feed instead.")
-        games = fetch_games_cdn(season, season_type)
-        print("Source: NBA.com schedule feed")
-        return games
+    raise SystemExit("All sources failed: " + ", ".join(sources[k][0] for k in order))
 
 
 def weekly_wins(games):
@@ -219,9 +296,9 @@ def main():
     p.add_argument("--season", default=default_season(), help="e.g. 2026-27")
     p.add_argument("--type", default="Regular Season",
                    help='"Regular Season", "Playoffs", "PlayIn" or "Pre Season"')
-    p.add_argument("--source", choices=["auto", "stats", "cdn"], default="auto",
+    p.add_argument("--source", choices=["auto", "stats", "cdn", "espn"], default="auto",
                    help="where games come from: stats.nba.com, the NBA.com schedule feed, "
-                        "or auto (stats first, schedule feed if that fails)")
+                        "ESPN's scoreboard, or auto (tries them in that order)")
     p.add_argument("--teams", nargs="+", metavar="ABBR",
                    help="team abbreviations for an extra bar chart, e.g. BOS NYK")
     p.add_argument("--out", type=Path, default=Path(__file__).resolve().parent,

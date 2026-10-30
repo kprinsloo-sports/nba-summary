@@ -41,7 +41,7 @@ jobs:
         if: always()
         run: |
           [ -f build.log ] || exit 0
-          grep -E "^(Source|stats\.nba\.com|Saved|No finished)" build.log | head -5 | sed 's/^/::notice::/' || true
+          grep -E "^(Source|Saved|No finished|All sources)" build.log | head -6 | tr -d '\r' | sed 's/::/: :/g; s/^/::notice::/' || true
           if [ "${{ job.status }}" != "success" ]; then
             tail -n 6 build.log | tr -d '\r' | sed 's/::/: :/g; s/^/::error::/'
           fi
